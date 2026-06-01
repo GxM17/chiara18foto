@@ -5,7 +5,7 @@
 
 [functions]
   node_bundler = "esbuild"
-  directory = "netlify/functions"
+  external_node_modules = ["googleapis", "busboy", "jszip"]
 
 [[redirects]]
   from = "/api/auth/token"
@@ -44,4 +44,3 @@
 
 [build.environment]
   NODE_VERSION = "18"
-  NPM_FLAGS = "--legacy-peer-deps"
