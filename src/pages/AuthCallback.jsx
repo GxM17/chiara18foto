@@ -9,42 +9,66 @@ export default function AuthCallback() {
   const navigate = useNavigate()
 
   useEffect(() => {
-    const handleCallback = async () => {
+    const handleCallback = () => {
       try {
-        // Get the code from URL params
-        const params = new URLSearchParams(window.location.search)
-        const code = params.get('code')
-        const state = params.get('state')
-        const errorParam = params.get('error')
+        // Check hash fragment first (implicit flow: token in #access_token=...)
+        const hash = window.location.hash.substring(1)
+        const hashParams = new URLSearchParams(hash)
+        const accessToken = hashParams.get('access_token')
+        const expiresIn = hashParams.get('expires_in')
+        const errorHash = hashParams.get('error')
 
-        if (errorParam) {
-          throw new Error('Accesso Google negato: ' + errorParam)
+        // Also check query params (authorization code flow fallback)
+        const queryParams = new URLSearchParams(window.location.search)
+        const errorQuery = queryParams.get('error')
+
+        if (errorHash || errorQuery) {
+          throw new Error('Accesso Google negato: ' + (errorHash || errorQuery))
         }
 
-        if (!code) {
-          throw new Error('Codice di autorizzazione mancante')
+        if (accessToken) {
+          // Implicit flow success - we have the token directly
+          setToken(accessToken, parseInt(expiresIn) || 3600)
+          setStatus('Accesso completato! Reindirizzamento...')
+          setTimeout(() => navigate('/dashboard', { replace: true }), 800)
+          return
         }
 
+        // Authorization code flow - exchange code for token
+        const code = queryParams.get('code')
+        if (code) {
+          exchangeCode(code)
+          return
+        }
+
+        throw new Error('Nessun token ricevuto da Google')
+
+      } catch (err) {
+        setError(err.message)
+      }
+    }
+
+    const exchangeCode = async (code) => {
+      try {
         setStatus('Scambio token in corso...')
-
-        // Exchange code for token via our serverless function
         const res = await fetch('/api/auth/token', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ code, redirectUri: window.location.origin + '/auth/callback' })
+          body: JSON.stringify({
+            code,
+            redirectUri: window.location.origin + '/auth/callback'
+          })
         })
 
         if (!res.ok) {
           const err = await res.json().catch(() => ({}))
-          throw new Error(err.error || 'Errore durante lo scambio del token')
+          throw new Error(err.error || 'Errore scambio token')
         }
 
         const data = await res.json()
         setToken(data.access_token, data.expires_in || 3600)
-
         setStatus('Accesso completato! Reindirizzamento...')
-        setTimeout(() => navigate('/dashboard', { replace: true }), 1000)
-
+        setTimeout(() => navigate('/dashboard', { replace: true }), 800)
       } catch (err) {
         setError(err.message)
       }
@@ -61,9 +85,14 @@ export default function AuthCallback() {
             <div style={styles.icon}>❌</div>
             <h2 style={styles.title}>Errore di autenticazione</h2>
             <p style={styles.text}>{error}</p>
-            <button className="btn btn-outline" onClick={() => navigate('/dashboard')}>
-              Riprova
-            </button>
+            <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
+              <button className="btn btn-gold" onClick={() => navigate('/dashboard')}>
+                Riprova connessione
+              </button>
+              <button className="btn btn-ghost" onClick={() => navigate('/dashboard')}>
+                Vai alla dashboard
+              </button>
+            </div>
           </>
         ) : (
           <>

@@ -4,7 +4,7 @@ import { useAuth } from '../utils/AuthContext.jsx'
 import { useToast } from '../utils/ToastContext.jsx'
 
 const GOOGLE_CLIENT_ID = '768659933488-nkj4tde7p0ido6dr29tqnm5ina5jqrgh.apps.googleusercontent.com'
-const SCOPES = 'https://www.googleapis.com/auth/drive.file'
+const SCOPES = 'https://www.googleapis.com/auth/drive'
 
 export default function AdminDashboard() {
   const { logoutAdmin, googleToken, setToken } = useAuth()
@@ -23,14 +23,13 @@ export default function AdminDashboard() {
 
   const isConnected = !!googleToken
 
-  // Connect to Google Drive
+  // Connect to Google Drive - using implicit flow (token directly in redirect)
   const connectGoogle = () => {
     const params = new URLSearchParams({
       client_id: GOOGLE_CLIENT_ID,
       redirect_uri: window.location.origin + '/auth/callback',
-      response_type: 'code',
+      response_type: 'token',
       scope: SCOPES,
-      access_type: 'offline',
       prompt: 'consent'
     })
     window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params}`
