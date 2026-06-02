@@ -144,7 +144,7 @@ export default function GuestPage() {
           <h1 style={styles.successTitle} className="shimmer-text">Grazie mille!</h1>
           <p style={styles.successText}>
             Le tue foto sono state caricate con successo.<br />
-            Chiara le riceverà insieme a tutti i ricordi di questa serata speciale.
+            Grazie mille per il contributo.
           </p>
           <button
             className="btn btn-outline"
@@ -165,7 +165,7 @@ export default function GuestPage() {
       <header style={styles.header} className="fade-up">
         <div style={styles.badge}>✦ 18 anni ✦</div>
         <h1 style={styles.title}><em>Chiara</em></h1>
-        <p style={styles.subtitle}>Condividi i tuoi ricordi più belli di questa serata</p>
+        <p style={styles.subtitle}>Condividi i tuoi ricordi più belli con Chiara</p>
       </header>
 
       <div style={styles.formCard} className="card fade-up">
@@ -255,15 +255,15 @@ export default function GuestPage() {
           {uploading ? (
             <><span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} /> {uploadStatus}</>
           ) : (
-            <>✦ Carica {files.length > 0 ? `${files.length} foto` : 'le foto'}</>
+            <> Carica {files.length > 0 ? `${files.length} foto` : 'le foto'}</>
           )}
         </button>
 
-        <p style={styles.privacy}>🔒 Le foto saranno visibili solo a Chiara e all'amministratore</p>
+        <p style={styles.privacy}>Le foto saranno visibili solo all'amministratore</p>
       </div>
 
       <footer style={styles.footer}>
-        <p style={styles.footerText}>con ❤️ per il tuo giorno speciale</p>
+        <p style={styles.footerText}>Grazie mille per i ricordi condivisi 💖</p>
       </footer>
     </div>
   )
