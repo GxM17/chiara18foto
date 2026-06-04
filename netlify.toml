@@ -5,16 +5,11 @@
 
 [functions]
   node_bundler = "esbuild"
-  external_node_modules = ["googleapis", "busboy", "jszip"]
+  external_node_modules = ["jszip"]
 
 [[redirects]]
-  from = "/api/auth/token"
-  to = "/.netlify/functions/auth-token"
-  status = 200
-
-[[redirects]]
-  from = "/api/upload"
-  to = "/.netlify/functions/upload"
+  from = "/api/service-token"
+  to = "/.netlify/functions/service-token"
   status = 200
 
 [[redirects]]
