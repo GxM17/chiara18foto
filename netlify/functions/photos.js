@@ -1,117 +1,81 @@
-const { google } = require('googleapis')
+const crypto = require('crypto')
 
-const CLIENT_ID = process.env.GOOGLE_CLIENT_ID
-const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET
+const ADMIN_KEY = 'Chiara18!Admin'
 const FOLDER_NAME = 'Chiara18'
+
+async function getServiceAccountToken() {
+  const email = process.env.SERVICE_ACCOUNT_EMAIL
+  const privateKey = (process.env.SERVICE_ACCOUNT_PRIVATE_KEY || '').replace(/\\n/g, '\n')
+  if (!email || !privateKey) throw new Error('Service account non configurato')
+  const now = Math.floor(Date.now() / 1000)
+  const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url')
+  const payload = Buffer.from(JSON.stringify({
+    iss: email, scope: 'https://www.googleapis.com/auth/drive',
+    aud: 'https://oauth2.googleapis.com/token', iat: now, exp: now + 3600
+  })).toString('base64url')
+  const signingInput = `${header}.${payload}`
+  const sign = crypto.createSign('RSA-SHA256')
+  sign.update(signingInput)
+  const jwt = `${signingInput}.${sign.sign(privateKey, 'base64url')}`
+  const res = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion: jwt })
+  })
+  const data = await res.json()
+  if (!data.access_token) throw new Error('Token error: ' + JSON.stringify(data))
+  return data.access_token
+}
 
 exports.handler = async (event) => {
   const headers = {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Admin-Key',
     'Access-Control-Allow-Methods': 'GET, DELETE, OPTIONS'
   }
+  if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers, body: '' }
 
-  if (event.httpMethod === 'OPTIONS') {
-    return { statusCode: 204, headers, body: '' }
-  }
-
-  const authHeader = event.headers['authorization'] || event.headers['Authorization']
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return { statusCode: 401, headers, body: JSON.stringify({ error: 'Token mancante' }) }
-  }
-
-  const accessToken = authHeader.replace('Bearer ', '')
+  const adminKey = event.headers['x-admin-key']
+  if (adminKey !== ADMIN_KEY) return { statusCode: 401, headers, body: JSON.stringify({ error: 'Non autorizzato' }) }
 
   try {
-    const oauth2Client = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET)
-    oauth2Client.setCredentials({ access_token: accessToken })
-    const drive = google.drive({ version: 'v3', auth: oauth2Client })
+    const token = await getServiceAccountToken()
 
     if (event.httpMethod === 'DELETE') {
-      // Delete a file: path is /api/photos/{fileId}
       const fileId = event.path.split('/').pop()
-      if (!fileId) {
-        return { statusCode: 400, headers, body: JSON.stringify({ error: 'ID file mancante' }) }
-      }
-      await drive.files.delete({ fileId })
+      await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
+        method: 'DELETE', headers: { Authorization: `Bearer ${token}` }
+      })
       return { statusCode: 200, headers, body: JSON.stringify({ success: true }) }
     }
 
-    // GET: List photos in Chiara18 folder
-    // Find folder
-    const folderRes = await drive.files.list({
-      q: `name='${FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
-      fields: 'files(id)',
-      spaces: 'drive'
-    })
+    // GET - list photos
+    const q = encodeURIComponent(`name='${FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`)
+    const folderRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)`,
+      { headers: { Authorization: `Bearer ${token}` } })
+    const folderData = await folderRes.json()
+    if (!folderData.files || folderData.files.length === 0) return { statusCode: 200, headers, body: JSON.stringify({ photos: [] }) }
 
-    if (!folderRes.data.files || folderRes.data.files.length === 0) {
-      return { statusCode: 200, headers, body: JSON.stringify({ photos: [] }) }
-    }
+    const folderId = folderData.files[0].id
+    const q2 = encodeURIComponent(`'${folderId}' in parents and mimeType contains 'image/' and trashed=false`)
+    const filesRes = await fetch(
+      `https://www.googleapis.com/drive/v3/files?q=${q2}&fields=files(id,name,mimeType,size,createdTime,description,thumbnailLink)&orderBy=createdTime%20desc&pageSize=500`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    )
+    const filesData = await filesRes.json()
 
-    const folderId = folderRes.data.files[0].id
-
-    // List all images in folder
-    const filesRes = await drive.files.list({
-      q: `'${folderId}' in parents and mimeType contains 'image/' and trashed=false`,
-      fields: 'files(id, name, mimeType, size, createdTime, description, thumbnailLink, webContentLink)',
-      orderBy: 'createdTime desc',
-      pageSize: 500
-    })
-
-    const photos = (filesRes.data.files || []).map(file => {
-      let guestName = 'Ospite'
-      let uploadedAt = file.createdTime
-      let originalName = file.name
-
-      try {
-        if (file.description) {
-          const meta = JSON.parse(file.description)
-          guestName = meta.guestName || guestName
-          uploadedAt = meta.uploadedAt || uploadedAt
-          originalName = meta.originalName || originalName
-        }
-      } catch {}
-
-      // Extract guest name from filename if no description
-      if (guestName === 'Ospite' && file.name) {
-        const parts = file.name.split('_')
-        if (parts.length > 2) {
-          guestName = parts[0].replace(/_/g, ' ')
-        }
-      }
-
+    const photos = (filesData.files || []).map(file => {
+      let guestName = 'Ospite', uploadedAt = file.createdTime, originalName = file.name
+      try { if (file.description) { const m = JSON.parse(file.description); guestName = m.guestName || guestName; uploadedAt = m.uploadedAt || uploadedAt; originalName = m.originalName || originalName } } catch {}
       return {
-        id: file.id,
-        name: file.name,
-        originalName,
-        guestName,
-        uploadedAt,
-        size: file.size,
-        mimeType: file.mimeType,
-        thumbnailUrl: file.thumbnailLink
-          ? file.thumbnailLink.replace('=s220', '=s400')
-          : null,
-        url: file.thumbnailLink
-          ? file.thumbnailLink.replace('=s220', '=s1600')
-          : `https://drive.google.com/uc?id=${file.id}&export=view`,
-        downloadUrl: file.webContentLink || `https://drive.google.com/uc?id=${file.id}&export=download`
+        id: file.id, name: file.name, originalName, guestName, uploadedAt, mimeType: file.mimeType,
+        thumbnailUrl: file.thumbnailLink ? file.thumbnailLink.replace('=s220', '=s400') : null,
+        url: file.thumbnailLink ? file.thumbnailLink.replace('=s220', '=s1600') : null
       }
     })
 
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify({ photos })
-    }
-
+    return { statusCode: 200, headers, body: JSON.stringify({ photos }) }
   } catch (err) {
-    console.error('Photos error:', err)
-    const status = err.code === 401 ? 401 : 500
-    return {
-      statusCode: status,
-      headers,
-      body: JSON.stringify({ error: err.message || 'Errore interno' })
-    }
+    console.error('photos error:', err)
+    return { statusCode: 500, headers, body: JSON.stringify({ error: err.message }) }
   }
 }
