@@ -1,99 +1,131 @@
-import React, { useState, useRef, useCallback } from 'react'
+import React, { useState, useRef, useCallback, useEffect } from 'react'
 import { useToast } from '../utils/ToastContext.jsx'
 
 const MAX_SIZE_MB = 20
+let cachedToken = null, cachedFolderId = null, tokenExpiry = 0
 
-// ── SVG decorations ──────────────────────────────────────────────────────────
+async function fetchServiceToken() {
+  const res = await fetch('/api/service-token')
+  const data = await res.json()
+  if (!res.ok || !data.access_token) throw new Error(data.error || 'Errore server')
+  cachedToken = data.access_token
+  cachedFolderId = data.folder_id
+  tokenExpiry = Date.now() + 3500 * 1000
+  return { token: cachedToken, folderId: cachedFolderId }
+}
+
+async function getTokenAndFolder() {
+  if (cachedToken && cachedFolderId && Date.now() < tokenExpiry) return { token: cachedToken, folderId: cachedFolderId }
+  return fetchServiceToken()
+}
+
+async function uploadFile(token, folderId, file, guestName) {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+  const safeGuest = guestName.replace(/[^a-zA-Z0-9\u00C0-\u024F\s]/g, '').trim().replace(/\s+/g, '_') || 'Ospite'
+  const ext = file.name.includes('.') ? file.name.split('.').pop() : 'jpg'
+  const finalName = `${safeGuest}_${timestamp}.${ext}`
+  const metadata = {
+    name: finalName,
+    parents: [folderId],
+    description: JSON.stringify({ guestName, uploadedAt: new Date().toISOString(), originalName: file.name })
+  }
+  const form = new FormData()
+  form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }))
+  form.append('file', file)
+  // supportsAllDrives=true is required when uploading to a folder shared with a service account
+  const res = await fetch(
+    'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name&supportsAllDrives=true',
+    { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form }
+  )
+  const result = await res.json()
+  if (!res.ok) throw new Error(result.error?.message || `Errore upload (${res.status})`)
+  return result
+}
+
+// ── SVG Decorations ──────────────────────────────────────────────
+const Petal = ({ cx, cy, r = 10, angle = 0, color = '#E8A0B4', opacity = 0.7 }) => (
+  <ellipse cx={cx} cy={cy} rx={r * 0.6} ry={r} fill={color} opacity={opacity}
+    transform={`rotate(${angle}, ${cx}, ${cy})`} />
+)
+
 const FloralLeft = () => (
-  <svg width="180" height="420" viewBox="0 0 180 420" fill="none" xmlns="http://www.w3.org/2000/svg"
-    style={{ position: 'absolute', left: 0, top: '50%', transform: 'translateY(-50%)', opacity: 0.55, pointerEvents: 'none' }}>
-    <path d="M60 380 Q40 300 80 240 Q100 200 70 140 Q50 90 90 40" stroke="#C4748A" strokeWidth="1.5" fill="none"/>
-    <ellipse cx="90" cy="40" rx="22" ry="28" fill="none" stroke="#C4748A" strokeWidth="1.2"/>
-    <ellipse cx="68" cy="55" rx="16" ry="20" fill="none" stroke="#E8A0B4" strokeWidth="1"/>
-    <ellipse cx="112" cy="55" rx="16" ry="20" fill="none" stroke="#E8A0B4" strokeWidth="1"/>
-    <circle cx="90" cy="42" r="6" fill="#F5E6EC"/>
-    <ellipse cx="70" cy="140" rx="18" ry="24" fill="none" stroke="#C4748A" strokeWidth="1.2"/>
-    <ellipse cx="50" cy="158" rx="12" ry="16" fill="none" stroke="#E8A0B4" strokeWidth="1"/>
-    <ellipse cx="92" cy="155" rx="12" ry="16" fill="none" stroke="#E8A0B4" strokeWidth="1"/>
-    <circle cx="70" cy="142" r="5" fill="#F5E6EC"/>
-    <path d="M75 200 Q30 190 20 160" stroke="#C4748A" strokeWidth="1" fill="none"/>
-    <path d="M72 220 Q50 240 60 270" stroke="#C4748A" strokeWidth="1" fill="none"/>
-    <path d="M65 280 Q30 275 15 260" stroke="#C4748A" strokeWidth="1" fill="none"/>
-    <ellipse cx="20" cy="158" rx="10" ry="14" fill="none" stroke="#E8A0B4" strokeWidth="0.8"/>
-    <ellipse cx="60" cy="272" rx="10" ry="14" fill="none" stroke="#E8A0B4" strokeWidth="0.8"/>
-    <ellipse cx="15" cy="258" rx="8" ry="12" fill="none" stroke="#E8A0B4" strokeWidth="0.8"/>
-    <path d="M60 380 Q20 360 10 330" stroke="#C4748A" strokeWidth="1" fill="none"/>
-    <circle cx="35" cy="195" r="3" fill="#C4748A" opacity="0.4"/>
-    <circle cx="52" cy="245" r="2" fill="#E8A0B4" opacity="0.5"/>
-    <circle cx="25" cy="305" r="2.5" fill="#C4748A" opacity="0.3"/>
+  <svg width="160" height="480" viewBox="0 0 160 480" fill="none" xmlns="http://www.w3.org/2000/svg"
+    style={{ position: 'absolute', left: 0, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', userSelect: 'none' }}>
+    {/* Main stem */}
+    <path d="M55 460 C45 380 85 320 65 240 C50 175 80 110 60 40" stroke="#C4748A" strokeWidth="1.8" fill="none" strokeLinecap="round"/>
+    {/* Top flower */}
+    <g opacity="0.85">
+      <Petal cx={60} cy={40} r={18} angle={0} color="#E8A0B4"/>
+      <Petal cx={60} cy={40} r={18} angle={45} color="#DDA0B2"/>
+      <Petal cx={60} cy={40} r={18} angle={90} color="#E8A0B4"/>
+      <Petal cx={60} cy={40} r={18} angle={135} color="#DDA0B2"/>
+      <circle cx={60} cy={40} r={7} fill="#FDF0F4" stroke="#C4748A" strokeWidth={1}/>
+    </g>
+    {/* Mid flower */}
+    <g opacity="0.75">
+      <Petal cx={65} cy={175} r={14} angle={20} color="#E8A0B4"/>
+      <Petal cx={65} cy={175} r={14} angle={65} color="#C4748A"/>
+      <Petal cx={65} cy={175} r={14} angle={110} color="#E8A0B4"/>
+      <Petal cx={65} cy={175} r={14} angle={155} color="#C4748A"/>
+      <circle cx={65} cy={175} r={5} fill="#FDF0F4" stroke="#C4748A" strokeWidth={1}/>
+    </g>
+    {/* Side branches */}
+    <path d="M60 120 C30 105 15 80 25 55" stroke="#C4748A" strokeWidth={1.2} fill="none" strokeLinecap="round"/>
+    <path d="M62 260 C25 255 10 235 18 210" stroke="#C4748A" strokeWidth={1.2} fill="none" strokeLinecap="round"/>
+    <path d="M58 340 C20 330 8 310 15 288" stroke="#C4748A" strokeWidth={1.2} fill="none" strokeLinecap="round"/>
+    {/* Small flowers on branches */}
+    <g opacity="0.65"><Petal cx={24} cy={55} r={9} angle={10} color="#F2B8CA"/><Petal cx={24} cy={55} r={9} angle={80} color="#E8A0B4"/><circle cx={24} cy={55} r={3.5} fill="#FDF0F4"/></g>
+    <g opacity="0.6"><Petal cx={17} cy={210} r={8} angle={30} color="#E8A0B4"/><Petal cx={17} cy={210} r={8} angle={100} color="#DDA0B2"/><circle cx={17} cy={210} r={3} fill="#FDF0F4"/></g>
+    <g opacity="0.6"><Petal cx={14} cy={288} r={7} angle={15} color="#F2B8CA"/><Petal cx={14} cy={288} r={7} angle={85} color="#E8A0B4"/><circle cx={14} cy={288} r={3} fill="#FDF0F4"/></g>
+    {/* Small buds */}
+    <ellipse cx={40} cy={90} rx={4} ry={7} fill="#E8A0B4" opacity={0.5} transform="rotate(-20,40,90)"/>
+    <ellipse cx={35} cy={300} rx={3} ry={6} fill="#C4748A" opacity={0.4} transform="rotate(15,35,300)"/>
+    <circle cx={48} cy={200} r={3} fill="#E8A0B4" opacity={0.35}/>
+    <circle cx={30} cy={380} r={2.5} fill="#C4748A" opacity={0.3}/>
   </svg>
 )
 
 const FloralRight = () => (
-  <svg width="200" height="500" viewBox="0 0 200 500" fill="none" xmlns="http://www.w3.org/2000/svg"
-    style={{ position: 'absolute', right: 0, top: '40%', transform: 'translateY(-50%)', opacity: 0.55, pointerEvents: 'none' }}>
-    <path d="M140 460 Q160 370 120 300 Q100 250 130 180 Q150 120 110 50" stroke="#C4748A" strokeWidth="1.5" fill="none"/>
-    <ellipse cx="110" cy="50" rx="26" ry="34" fill="none" stroke="#C4748A" strokeWidth="1.3"/>
-    <ellipse cx="84" cy="68" rx="18" ry="24" fill="none" stroke="#E8A0B4" strokeWidth="1"/>
-    <ellipse cx="136" cy="68" rx="18" ry="24" fill="none" stroke="#E8A0B4" strokeWidth="1"/>
-    <circle cx="110" cy="52" r="7" fill="#F5E6EC"/>
-    <ellipse cx="130" cy="180" rx="20" ry="26" fill="none" stroke="#C4748A" strokeWidth="1.2"/>
-    <ellipse cx="108" cy="196" rx="14" ry="18" fill="none" stroke="#E8A0B4" strokeWidth="1"/>
-    <ellipse cx="152" cy="196" rx="14" ry="18" fill="none" stroke="#E8A0B4" strokeWidth="1"/>
-    <circle cx="130" cy="182" r="6" fill="#F5E6EC"/>
-    <path d="M125 130 Q170 120 182 90" stroke="#C4748A" strokeWidth="1" fill="none"/>
-    <path d="M128 240 Q175 250 185 280" stroke="#C4748A" strokeWidth="1" fill="none"/>
-    <path d="M122 310 Q170 305 185 285" stroke="#C4748A" strokeWidth="1" fill="none"/>
-    <ellipse cx="182" cy="88" rx="12" ry="16" fill="none" stroke="#E8A0B4" strokeWidth="0.9"/>
-    <ellipse cx="185" cy="282" rx="12" ry="16" fill="none" stroke="#E8A0B4" strokeWidth="0.9"/>
-    <path d="M135 380 Q180 365 192 340" stroke="#C4748A" strokeWidth="1" fill="none"/>
-    <circle cx="168" cy="118" r="3.5" fill="#C4748A" opacity="0.4"/>
-    <circle cx="178" cy="255" r="2.5" fill="#E8A0B4" opacity="0.5"/>
-    <circle cx="160" cy="350" r="3" fill="#C4748A" opacity="0.3"/>
-    <circle cx="110" cy="140" r="2" fill="#E8A0B4" opacity="0.4"/>
-    <circle cx="150" cy="420" r="2" fill="#C4748A" opacity="0.3"/>
-  </svg>
-)
-
-// Proper camera SVG icon (clean, no broken emoji fallback)
-const CameraIcon = () => (
-  <svg width="52" height="52" viewBox="0 0 52 52" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <rect x="4" y="16" width="44" height="30" rx="5" stroke="#C4748A" strokeWidth="1.8" fill="none"/>
-    <circle cx="26" cy="31" r="8" stroke="#C4748A" strokeWidth="1.8" fill="none"/>
-    <circle cx="26" cy="31" r="3.5" fill="#F5E6EC"/>
-    <path d="M18 16l3.5-6h9l3.5 6" stroke="#C4748A" strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
-    <circle cx="40" cy="23" r="2" fill="#C4748A"/>
-    <path d="M10 24 Q26 20 42 24" stroke="#E8A0B4" strokeWidth="0.9" fill="none" opacity="0.6"/>
-  </svg>
-)
-
-// Upload cloud icon for the button
-const UploadIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
-    <path d="M12 16V8M12 8l-3 3M12 8l3 3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-    <path d="M20 16.7A4 4 0 0017 9h-1.26A8 8 0 104 16.3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-  </svg>
-)
-
-// X close icon
-const CloseIcon = () => (
-  <svg width="8" height="8" viewBox="0 0 10 10" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <path d="M1 1l8 8M9 1l-8 8" stroke="white" strokeWidth="1.8" strokeLinecap="round"/>
-  </svg>
-)
-
-// Add more icon
-const AddIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <path d="M12 5v14M5 12h14" stroke="#C4748A" strokeWidth="1.8" strokeLinecap="round"/>
-  </svg>
-)
-
-// Lock icon
-const LockIcon = () => (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
-    <rect x="5" y="11" width="14" height="10" rx="2" stroke="currentColor" strokeWidth="2"/>
-    <path d="M8 11V7a4 4 0 018 0v4" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+  <svg width="180" height="540" viewBox="0 0 180 540" fill="none" xmlns="http://www.w3.org/2000/svg"
+    style={{ position: 'absolute', right: 0, top: '45%', transform: 'translateY(-50%)', pointerEvents: 'none', userSelect: 'none' }}>
+    {/* Main stem */}
+    <path d="M120 520 C135 430 95 360 120 280 C140 215 110 140 130 55" stroke="#C4748A" strokeWidth="1.8" fill="none" strokeLinecap="round"/>
+    {/* Top large flower */}
+    <g opacity="0.9">
+      <Petal cx={130} cy={55} r={22} angle={0} color="#F2B8CA"/>
+      <Petal cx={130} cy={55} r={22} angle={36} color="#E8A0B4"/>
+      <Petal cx={130} cy={55} r={22} angle={72} color="#DDA0B2"/>
+      <Petal cx={130} cy={55} r={22} angle={108} color="#E8A0B4"/>
+      <Petal cx={130} cy={55} r={22} angle={144} color="#F2B8CA"/>
+      <circle cx={130} cy={55} r={8} fill="#FDF0F4" stroke="#C4748A" strokeWidth={1.2}/>
+    </g>
+    {/* Mid flower */}
+    <g opacity="0.78">
+      <Petal cx={118} cy={200} r={16} angle={15} color="#E8A0B4"/>
+      <Petal cx={118} cy={200} r={16} angle={60} color="#C4748A"/>
+      <Petal cx={118} cy={200} r={16} angle={105} color="#E8A0B4"/>
+      <Petal cx={118} cy={200} r={16} angle={150} color="#DDA0B2"/>
+      <circle cx={118} cy={200} r={6} fill="#FDF0F4" stroke="#C4748A" strokeWidth={1}/>
+    </g>
+    {/* Lower flower */}
+    <g opacity="0.65">
+      <Petal cx={122} cy={370} r={13} angle={5} color="#F2B8CA"/>
+      <Petal cx={122} cy={370} r={13} angle={65} color="#E8A0B4"/>
+      <Petal cx={122} cy={370} r={13} angle={125} color="#DDA0B2"/>
+      <circle cx={122} cy={370} r={5} fill="#FDF0F4"/>
+    </g>
+    {/* Side branches */}
+    <path d="M128 130 C160 118 172 95 165 72" stroke="#C4748A" strokeWidth={1.2} fill="none" strokeLinecap="round"/>
+    <path d="M120 300 C158 290 170 268 162 245" stroke="#C4748A" strokeWidth={1.2} fill="none" strokeLinecap="round"/>
+    <path d="M125 440 C162 430 172 412 166 390" stroke="#C4748A" strokeWidth={1.2} fill="none" strokeLinecap="round"/>
+    {/* Branch flowers */}
+    <g opacity="0.65"><Petal cx={165} cy={72} r={10} angle={25} color="#F2B8CA"/><Petal cx={165} cy={72} r={10} angle={95} color="#E8A0B4"/><circle cx={165} cy={72} r={4} fill="#FDF0F4"/></g>
+    <g opacity="0.6"><Petal cx={162} cy={245} r={9} angle={10} color="#E8A0B4"/><Petal cx={162} cy={245} r={9} angle={80} color="#DDA0B2"/><circle cx={162} cy={245} r={3.5} fill="#FDF0F4"/></g>
+    <g opacity="0.55"><Petal cx={166} cy={390} r={8} angle={20} color="#F2B8CA"/><Petal cx={166} cy={390} r={8} angle={90} color="#E8A0B4"/><circle cx={166} cy={390} r={3} fill="#FDF0F4"/></g>
+    {/* Dots */}
+    <circle cx={142} cy={160} r={3.5} fill="#E8A0B4" opacity={0.4}/>
+    <circle cx={135} cy={460} r={3} fill="#C4748A" opacity={0.3}/>
+    <ellipse cx={155} cy={325} rx={3} ry={5} fill="#E8A0B4" opacity={0.4} transform="rotate(-10,155,325)"/>
   </svg>
 )
 
@@ -106,8 +138,11 @@ export default function GuestPage() {
   const [dragOver, setDragOver] = useState(false)
   const [progress, setProgress] = useState(0)
   const [statusMsg, setStatusMsg] = useState('')
+  const [systemError, setSystemError] = useState(null)
   const fileRef = useRef()
   const { addToast } = useToast()
+
+  useEffect(() => { fetchServiceToken().catch(err => setSystemError(err.message)) }, [])
 
   const addFiles = useCallback((newFiles) => {
     const valid = []
@@ -115,172 +150,126 @@ export default function GuestPage() {
       if (!f.type.startsWith('image/') && !f.name.match(/\.(heic|heif|jpg|jpeg|png|gif|webp)$/i)) {
         addToast(`${f.name}: formato non supportato`, 'error'); continue
       }
-      if (f.size > MAX_SIZE_MB * 1024 * 1024) {
-        addToast(`${f.name}: max ${MAX_SIZE_MB}MB`, 'error'); continue
-      }
+      if (f.size > MAX_SIZE_MB * 1024 * 1024) { addToast(`${f.name}: max ${MAX_SIZE_MB}MB`, 'error'); continue }
       valid.push(f)
     }
     if (!valid.length) return
-    setFiles(prev => [...prev, ...valid])
-    valid.forEach(f => {
-      const reader = new FileReader()
-      reader.onload = e => setPreviews(prev => [...prev, { url: e.target.result, name: f.name }])
-      reader.readAsDataURL(f)
-    })
+    setFiles(p => [...p, ...valid])
+    valid.forEach(f => { const r = new FileReader(); r.onload = e => setPreviews(p => [...p, { url: e.target.result, name: f.name }]); r.readAsDataURL(f) })
   }, [addToast])
 
-  const removeFile = (i) => {
-    setFiles(prev => prev.filter((_, idx) => idx !== i))
-    setPreviews(prev => prev.filter((_, idx) => idx !== i))
-  }
-
-  const reset = () => {
-    setFiles([]); setPreviews([]); setUploaded(false)
-    setProgress(0); setStatusMsg(''); setUploading(false)
-  }
+  const removeFile = idx => { setFiles(p => p.filter((_, i) => i !== idx)); setPreviews(p => p.filter((_, i) => i !== idx)) }
+  const reset = () => { setUploaded(false); setFiles([]); setPreviews([]); setName(''); setProgress(0); setStatusMsg('') }
 
   const handleUpload = async () => {
-    if (!name.trim() || !files.length || uploading) return
-    setUploading(true)
-    setProgress(0)
-
+    if (!name.trim()) { addToast('Inserisci il tuo nome', 'error'); return }
+    if (!files.length) { addToast('Seleziona almeno una foto', 'error'); return }
+    setUploading(true); setProgress(0); setStatusMsg('Connessione...')
     try {
+      const { token, folderId } = await getTokenAndFolder()
       for (let i = 0; i < files.length; i++) {
-        const file = files[i]
-        setStatusMsg(`Caricamento foto ${i + 1} di ${files.length}...`)
-
-        const formData = new FormData()
-        formData.append('guestName', name.trim())
-        formData.append('fileName', file.name)
-        formData.append('file', file)
-
-        const res = await fetch('/api/upload', { method: 'POST', body: formData })
-        const data = await res.json()
-        if (!res.ok) throw new Error(data.error || `Errore upload foto ${i + 1}`)
-
+        setStatusMsg(`Caricamento ${i + 1} di ${files.length}...`)
+        try { await uploadFile(token, folderId, files[i], name.trim()) }
+        catch { const { token: t2, folderId: f2 } = await fetchServiceToken(); await uploadFile(t2, f2, files[i], name.trim()) }
         setProgress(Math.round(((i + 1) / files.length) * 100))
       }
       setUploaded(true)
-      addToast(`${files.length} foto caricate con successo! 🌸`, 'success')
     } catch (err) {
       addToast('Errore: ' + (err.message || 'Riprova'), 'error')
       setUploading(false)
     }
   }
 
-  // ── Success screen ─────────────────────────────────────────────────────────
+  // ── SUCCESS ────────────────────────────────────────────────────
   if (uploaded) return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, background: 'var(--bg)', position: 'relative', overflow: 'hidden' }}>
+    <div style={s.pageCenter}>
       <FloralLeft /><FloralRight />
-      <div style={{ textAlign: 'center', maxWidth: 440, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20 }} className="fade-up">
-        <div style={{ fontSize: 72, animation: 'float 3s ease-in-out infinite' }}>🌸</div>
-        <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 52, fontWeight: 400, color: 'var(--text)', lineHeight: 1.1 }}>Grazie mille!</h1>
-        <p style={{ color: 'var(--text-dim)', lineHeight: 1.8, fontSize: 16 }}>
-          Le tue foto sono state caricate con successo.<br/>
-          Chiara le riceverà insieme a tutti i ricordi di questa serata speciale. ♡
+      <div style={{ textAlign: 'center', maxWidth: 460, position: 'relative', zIndex: 1 }} className="fade-up">
+        <div style={{ fontSize: 80, marginBottom: 24, display: 'inline-block', animation: 'float 3s ease-in-out infinite' }}>🌸</div>
+        <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 56, fontWeight: 400, color: 'var(--text)', marginBottom: 16, lineHeight: 1.1 }}>Grazie mille!</h1>
+        <p style={{ color: 'var(--text-dim)', fontSize: 16, lineHeight: 1.8, marginBottom: 36 }}>
+          Le tue {files.length} foto sono state caricate con successo.<br/>
+          Chiara le riceverà insieme a tutti i ricordi<br/>di questa serata speciale. ♡
         </p>
-        <button className="btn btn-rose" onClick={reset}>Carica altre foto</button>
+        <button className="btn btn-rose" style={{ padding: '14px 36px' }} onClick={reset}>Carica altre foto</button>
       </div>
     </div>
   )
 
-  // ── Main page ──────────────────────────────────────────────────────────────
+  // ── MAIN ───────────────────────────────────────────────────────
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', background: 'var(--bg)', position: 'relative', overflow: 'hidden' }}>
+    <div style={s.page}>
       <FloralLeft /><FloralRight />
 
-      {/* Left panel */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: 'clamp(40px, 6vw, 80px) clamp(40px, 6vw, 100px)', maxWidth: 580, position: 'relative', zIndex: 1 }} className="fade-up">
-
-        {/* Title */}
-        <div style={{ marginBottom: 8 }}>
-          <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(56px, 7vw, 88px)', fontWeight: 400, color: 'var(--text)', lineHeight: 1, marginBottom: 4 }}>Chiara</h1>
-          <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(28px, 3.5vw, 42px)', fontStyle: 'italic', color: 'var(--rose)', fontWeight: 300 }}>18 anni</p>
-        </div>
-        <p style={{ color: 'var(--text-dim)', fontSize: 16, lineHeight: 1.7, marginTop: 16, marginBottom: 48, maxWidth: 380 }}>
-          Condividi i tuoi ricordi più belli e<br/>aiutaci a rendere questo giorno indimenticabile. ♡
-        </p>
-
-        {/* Name field */}
-        <div style={{ marginBottom: 32 }}>
-          <label style={{ display: 'block', fontSize: 11, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-dim)', marginBottom: 10 }}>
-            Il tuo nome
-          </label>
-          <input
-            className="input"
-            type="text"
-            placeholder="Scrivi qui il tuo nome"
-            value={name}
-            onChange={e => setName(e.target.value)}
-            maxLength={50}
-            disabled={uploading}
-          />
+      {/* Left: form */}
+      <div style={s.left} className="fade-up">
+        <div style={{ marginBottom: 40 }}>
+          <p style={{ fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--rose)', fontWeight: 600, marginBottom: 12 }}>✦ Benvenuto ✦</p>
+          <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(52px, 6vw, 82px)', fontWeight: 400, color: 'var(--text)', lineHeight: 1, marginBottom: 8 }}>Chiara</h1>
+          <p style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(26px, 3vw, 38px)', fontStyle: 'italic', color: 'var(--rose)', fontWeight: 300, marginBottom: 20 }}>18 anni</p>
+          <p style={{ color: 'var(--text-dim)', fontSize: 15, lineHeight: 1.75, maxWidth: 360 }}>
+            Condividi i tuoi ricordi più belli e aiutaci a rendere questo giorno indimenticabile. ♡
+          </p>
         </div>
 
-        {/* Photo drop zone */}
+        {systemError && (
+          <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 12, padding: '12px 16px', marginBottom: 24, fontSize: 13, color: '#991B1B' }}>
+            ⚠️ {systemError}
+          </div>
+        )}
+
+        {/* Nome */}
         <div style={{ marginBottom: 32 }}>
-          <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-            <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-dim)' }}>Le tue foto</span>
-            <span style={{ fontSize: 11, color: 'var(--text-muted)', letterSpacing: '0.04em' }}>max {MAX_SIZE_MB}MB · JPG PNG WEBP HEIC</span>
+          <label style={s.label}>Il tuo nome</label>
+          <input className="input" type="text" placeholder="Scrivi qui il tuo nome" value={name}
+            onChange={e => setName(e.target.value)} maxLength={50} disabled={uploading} />
+        </div>
+
+        {/* Foto */}
+        <div style={{ marginBottom: 32 }}>
+          <label style={s.label}>
+            Le tue foto
+            {files.length > 0 && <span style={{ color: 'var(--rose)', marginLeft: 8, fontWeight: 600 }}>{files.length} selezionate</span>}
           </label>
           <div
-            style={{
-              border: `1.5px dashed ${dragOver ? 'var(--rose)' : 'var(--border)'}`,
-              borderRadius: 16,
-              padding: files.length ? 12 : '32px 20px',
-              cursor: uploading ? 'default' : 'pointer',
-              transition: 'all 0.3s',
-              background: dragOver ? 'rgba(196,116,138,0.04)' : 'white',
-              minHeight: files.length ? 'auto' : 160,
-              display: 'flex', alignItems: 'center', justifyContent: 'center'
-            }}
-            onDrop={e => { e.preventDefault(); setDragOver(false); if (!uploading) addFiles(e.dataTransfer.files) }}
+            style={{ ...s.drop, ...(dragOver ? s.dropActive : {}), ...(files.length ? { padding: 12, minHeight: 'auto' } : {}) }}
+            onDrop={e => { e.preventDefault(); setDragOver(false); addFiles(e.dataTransfer.files) }}
             onDragOver={e => { e.preventDefault(); setDragOver(true) }}
             onDragLeave={() => setDragOver(false)}
             onClick={() => !uploading && fileRef.current?.click()}
           >
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/*,.heic,.heif"
-              multiple
-              style={{ display: 'none' }}
-              onChange={e => addFiles(e.target.files)}
-              disabled={uploading}
-            />
-
+            <input ref={fileRef} type="file" accept="image/*,.heic,.heif" multiple style={{ display: 'none' }} onChange={e => addFiles(e.target.files)} disabled={uploading} />
             {!files.length ? (
               <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
-                <CameraIcon />
-                <div>
-                  <p style={{ color: 'var(--text)', fontSize: 14, fontWeight: 500, marginBottom: 4 }}>Trascina e rilascia le tue foto qui</p>
-                  <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>oppure clicca per selezionarle</p>
+                <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'var(--rose-pale)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                    <rect x="2" y="6" width="20" height="15" rx="2.5" stroke="#C4748A" strokeWidth="1.5"/>
+                    <circle cx="12" cy="13.5" r="3.5" stroke="#C4748A" strokeWidth="1.5"/>
+                    <path d="M8 6l1.5-2.5h5L16 6" stroke="#C4748A" strokeWidth="1.5" strokeLinecap="round"/>
+                    <circle cx="18" cy="9" r="1.2" fill="#C4748A"/>
+                  </svg>
                 </div>
+                <div>
+                  <p style={{ color: 'var(--text)', fontSize: 14, fontWeight: 500, marginBottom: 4 }}>Trascina le tue foto qui</p>
+                  <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>oppure <span style={{ color: 'var(--rose)', textDecoration: 'underline' }}>clicca per selezionarle</span></p>
+                </div>
+                <p style={{ fontSize: 11, color: 'var(--text-muted)', letterSpacing: '0.06em' }}>JPG · PNG · HEIC · illimitate</p>
               </div>
             ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(80px, 1fr))', gap: 8, width: '100%' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(76px, 1fr))', gap: 8, width: '100%' }}>
                 {previews.map((p, i) => (
-                  <div key={i} style={{ position: 'relative', borderRadius: 8, overflow: 'hidden', aspectRatio: '1', background: '#F5F5F5' }}>
+                  <div key={i} style={{ position: 'relative', borderRadius: 8, overflow: 'hidden', aspectRatio: '1', background: '#F5F0EE', boxShadow: '0 2px 6px rgba(0,0,0,0.08)' }}>
                     <img src={p.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                     {!uploading && (
-                      <button
-                        style={{ position: 'absolute', top: 4, right: 4, width: 20, height: 20, borderRadius: '50%', background: 'rgba(44,36,36,0.65)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                        onClick={e => { e.stopPropagation(); removeFile(i) }}
-                        title="Rimuovi"
-                      >
-                        <CloseIcon />
-                      </button>
+                      <button style={{ position: 'absolute', top: 3, right: 3, width: 20, height: 20, borderRadius: '50%', background: 'rgba(44,36,36,0.65)', border: 'none', color: '#fff', fontSize: 9, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}
+                        onClick={e => { e.stopPropagation(); removeFile(i) }}>✕</button>
                     )}
                   </div>
                 ))}
                 {!uploading && (
-                  <div
-                    style={{ borderRadius: 8, border: '1.5px dashed var(--border)', aspectRatio: '1', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', cursor: 'pointer', gap: 2 }}
-                    onClick={e => { e.stopPropagation(); fileRef.current?.click() }}
-                    title="Aggiungi foto"
-                  >
-                    <AddIcon />
-                    <span style={{ fontSize: 10, letterSpacing: '0.04em' }}>Aggiungi</span>
+                  <div style={{ borderRadius: 8, border: '1.5px dashed var(--border)', aspectRatio: '1', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'var(--rose)', cursor: 'pointer', gap: 2, background: 'var(--rose-pale)', opacity: 0.8 }}
+                    onClick={e => { e.stopPropagation(); fileRef.current?.click() }}>
+                    <span style={{ fontSize: 20, lineHeight: 1 }}>+</span>
                   </div>
                 )}
               </div>
@@ -288,45 +277,83 @@ export default function GuestPage() {
           </div>
         </div>
 
-        {/* Progress bar */}
+        {/* Progress */}
         {uploading && (
-          <div style={{ marginBottom: 20 }}>
-            <div style={{ height: 3, background: 'rgba(196,116,138,0.15)', borderRadius: 2, overflow: 'hidden', marginBottom: 8 }}>
-              <div style={{ height: '100%', background: 'var(--rose)', borderRadius: 2, transition: 'width 0.4s ease', width: `${progress}%` }} />
+          <div style={{ marginBottom: 24 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+              <span style={{ fontSize: 13, color: 'var(--text-dim)' }}>{statusMsg}</span>
+              <span style={{ fontSize: 13, color: 'var(--rose)', fontWeight: 600 }}>{progress}%</span>
             </div>
-            <p style={{ fontSize: 13, color: 'var(--text-muted)', textAlign: 'center' }}>
-              {statusMsg}{progress > 0 ? ` — ${progress}%` : ''}
-            </p>
+            <div style={{ height: 4, background: 'var(--rose-pale)', borderRadius: 2, overflow: 'hidden' }}>
+              <div style={{ height: '100%', background: 'linear-gradient(90deg, var(--rose-light), var(--rose))', borderRadius: 2, transition: 'width 0.4s ease', width: `${progress}%` }} />
+            </div>
           </div>
         )}
 
-        {/* CTA button */}
-        <button
-          className="btn btn-rose"
-          style={{ alignSelf: 'flex-start', padding: '14px 40px', fontSize: 13 }}
-          onClick={handleUpload}
-          disabled={uploading || !name.trim() || !files.length}
-        >
+        {/* Button */}
+        <button className="btn btn-rose"
+          style={{ padding: '15px 44px', fontSize: 12, letterSpacing: '0.12em', boxShadow: '0 6px 20px rgba(196,116,138,0.3)' }}
+          onClick={handleUpload} disabled={uploading || !name.trim() || !files.length}>
           {uploading
-            ? <><span className="spinner" style={{ width: 14, height: 14, borderWidth: 2, borderTopColor: 'white', borderColor: 'rgba(255,255,255,0.3)' }} />{statusMsg || 'Caricamento...'}</>
-            : <><UploadIcon />Carica {files.length > 0 ? `${files.length} foto` : 'le tue foto'}</>}
+            ? <><span className="spinner" style={{ width: 14, height: 14, borderWidth: 2, borderTopColor: 'white', borderColor: 'rgba(255,255,255,0.3)' }} />&nbsp;{statusMsg}</>
+            : `Carica le tue foto${files.length > 0 ? ` (${files.length})` : ''}`}
         </button>
 
-        {/* Privacy note */}
-        <p style={{ marginTop: 16, fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 5 }}>
-          <LockIcon />Le foto saranno visibili solo a Chiara e all'amministratore
+        <p style={{ marginTop: 16, fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6 }}>
+          Caricando le foto, accetti di condividerle con Chiara e gli altri ospiti.
         </p>
       </div>
 
-      {/* Right decorative panel */}
-      <div style={{ flex: '0 0 42%', background: 'linear-gradient(135deg, #FDF0F4 0%, #FBE8F0 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden' }}>
-        <div style={{ textAlign: 'center', padding: 40, position: 'relative', zIndex: 1 }}>
-          <div style={{ width: 180, height: 180, borderRadius: '50%', background: 'rgba(255,255,255,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px', border: '1px solid rgba(196,116,138,0.2)' }}>
-            <span style={{ fontSize: 72 }}>🌸</span>
+      {/* Right: decorative panel */}
+      <div style={s.right}>
+        <div style={{ position: 'relative', zIndex: 1, textAlign: 'center', padding: 40 }}>
+          <div style={{ width: 200, height: 200, borderRadius: '50%', background: 'rgba(255,255,255,0.55)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 32px', border: '1.5px solid rgba(196,116,138,0.2)', boxShadow: '0 12px 40px rgba(196,116,138,0.12)' }}>
+            <span style={{ fontSize: 80 }}>🌸</span>
           </div>
-          <p style={{ fontFamily: 'var(--font-display)', fontSize: 22, color: 'var(--text-dim)', fontStyle: 'italic' }}>un giorno da ricordare</p>
+          <p style={{ fontFamily: 'var(--font-display)', fontSize: 24, fontStyle: 'italic', color: '#A05570', fontWeight: 300, marginBottom: 8 }}>un giorno da ricordare</p>
+          <div style={{ width: 40, height: 1, background: 'var(--rose-light)', margin: '16px auto' }} />
+          <p style={{ fontSize: 13, color: '#C4748A', letterSpacing: '0.08em', opacity: 0.8 }}>con amore ♡</p>
         </div>
+        {/* Decorative circles */}
+        <div style={{ position: 'absolute', top: '15%', right: '12%', width: 120, height: 120, borderRadius: '50%', border: '1px solid rgba(196,116,138,0.15)' }} />
+        <div style={{ position: 'absolute', bottom: '20%', left: '10%', width: 80, height: 80, borderRadius: '50%', border: '1px solid rgba(196,116,138,0.12)' }} />
+        <div style={{ position: 'absolute', top: '55%', right: '8%', width: 50, height: 50, borderRadius: '50%', background: 'rgba(196,116,138,0.07)' }} />
       </div>
     </div>
   )
+}
+
+const s = {
+  page: {
+    minHeight: '100vh', display: 'flex', background: 'var(--bg)',
+    position: 'relative', overflow: 'hidden',
+    '@media(maxWidth:768px)': { flexDirection: 'column' }
+  },
+  pageCenter: {
+    minHeight: '100vh', display: 'flex', alignItems: 'center',
+    justifyContent: 'center', padding: 24, background: 'var(--bg)',
+    position: 'relative', overflow: 'hidden'
+  },
+  left: {
+    flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center',
+    padding: 'clamp(40px, 6vw, 80px) clamp(40px, 6vw, 80px) clamp(40px, 6vw, 80px) clamp(60px, 8vw, 120px)',
+    maxWidth: 580, position: 'relative', zIndex: 1
+  },
+  right: {
+    flex: '0 0 42%', background: 'linear-gradient(145deg, #FDF0F4 0%, #F8E4EC 50%, #FDF0F4 100%)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    position: 'relative', overflow: 'hidden', minHeight: 400
+  },
+  label: {
+    display: 'block', fontSize: 11, fontWeight: 600,
+    letterSpacing: '0.12em', textTransform: 'uppercase',
+    color: 'var(--text-dim)', marginBottom: 10
+  },
+  drop: {
+    border: '1.5px dashed var(--border)', borderRadius: 16,
+    padding: '28px 20px', cursor: 'pointer',
+    transition: 'all 0.3s', background: 'white',
+    minHeight: 150, display: 'flex', alignItems: 'center', justifyContent: 'center'
+  },
+  dropActive: { borderColor: 'var(--rose)', background: 'rgba(196,116,138,0.04)' }
 }
