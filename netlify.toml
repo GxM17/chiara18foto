@@ -1,0 +1,41 @@
+[build]
+  command = "npm install && npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+  external_node_modules = ["jszip"]
+
+[[redirects]]
+  from = "/api/service-token"
+  to = "/.netlify/functions/service-token"
+  status = 200
+
+[[redirects]]
+  from = "/api/photos/:id"
+  to = "/.netlify/functions/photos"
+  status = 200
+
+[[redirects]]
+  from = "/api/photos"
+  to = "/.netlify/functions/photos"
+  status = 200
+
+[[redirects]]
+  from = "/api/download-zip"
+  to = "/.netlify/functions/download-zip"
+  status = 200
+
+[[redirects]]
+  from = "/api/download/:id"
+  to = "/.netlify/functions/download"
+  status = 200
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[build.environment]
+  NODE_VERSION = "18"
